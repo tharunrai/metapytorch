@@ -1,15 +1,14 @@
 from typing import Optional, Any, List, Dict
 from pydantic import BaseModel
-from openenv_core.env_server import Action, Observation, State
 
-class DataQualityAction(BaseModel, Action):
+class DataQualityAction(BaseModel):
     action_type: str 
     task_id: Optional[str] = None
     issue_type: Optional[str] = None
     row_index: Optional[int] = None
     column: Optional[str] = None
 
-class DataQualityObservation(BaseModel, Observation):
+class DataQualityObservation(BaseModel):
     task_id: str
     task_description: str
     dataset: List[Dict[str, Any]]
@@ -18,7 +17,7 @@ class DataQualityObservation(BaseModel, Observation):
     issues_found_so_far: List[str]
     hint: Optional[str] = None
 
-class DataQualityState(BaseModel, State):
+class DataQualityState(BaseModel):
     task_id: str
     step_number: int
     issues_found: List[str]

@@ -59,38 +59,40 @@ async def run_task(llm_client: AsyncOpenAI, task_id: str):
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
     rewards = []
     steps_taken, score, success = 0, 0.0, False
+    env = DataQualityClient(base_url=ENV_BASE_URL)
 
     try:
-        async with DataQualityClient(base_url=ENV_BASE_URL) as env:
-            await env.reset()
-            result = await env.step(DataQualityAction(action_type="start_task", task_id=task_id))
-            obs, done, last_reward = result.observation, result.done, 0.0
-            max_steps = 30 # Fallback safety limit
+        env.reset()
+        result = env.step(DataQualityAction(action_type="start_task", task_id=task_id))
+        obs, done, last_reward = result.observation, result.done, 0.0
+        max_steps = 30 # Fallback safety limit
 
-            for step in range(1, max_steps + 1):
-                if done: break
-                action_dict = await get_action(llm_client, obs, step, last_reward)
-                action_str = json.dumps(action_dict)
+        for step in range(1, max_steps + 1):
+            if done:
+                break
+            action_dict = await get_action(llm_client, obs, step, last_reward)
+            action_str = json.dumps(action_dict)
 
-                result = await env.step(DataQualityAction(**action_dict))
-                obs, reward, done = result.observation, result.reward, result.done
-                
-                rewards.append(reward)
-                steps_taken = step
-                last_reward = reward
+            result = env.step(DataQualityAction(**action_dict))
+            obs, reward, done = result.observation, result.reward, result.done
 
-                log_step(step=step, action=action_str, reward=reward, done=done, error=None)
-                
-                if done:
-                    score = reward
-                    break
+            rewards.append(reward)
+            steps_taken = step
+            last_reward = reward
 
-            success = score >= 0.5
+            log_step(step=step, action=action_str, reward=reward, done=done, error=None)
+
+            if done:
+                score = reward
+                break
+
+        success = score >= 0.5
 
     except Exception as e:
         print(f"[DEBUG] Error: {e}", flush=True)
 
     finally:
+        env.close()
         score = min(max(float(score), 0.0), 1.0)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 

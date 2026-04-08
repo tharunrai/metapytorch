@@ -7,7 +7,8 @@ import json
 import random
 from typing import Any, Optional
 from pydantic import BaseModel
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.responses import RedirectResponse
 import uvicorn
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
@@ -309,6 +310,14 @@ def get_env(task_id: str) -> DataQualityEnv:
     if task_id not in _envs:
         _envs[task_id] = DataQualityEnv(task_id)
     return _envs[task_id]
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 @app.post("/reset")
 def reset(body: dict = {}):
