@@ -1,6 +1,6 @@
 from typing import Optional, Any, List, Dict
 from pydantic import BaseModel
-from openenv.core.env_server import Action, Observation, State
+from openenv_core.env_server import Action, Observation, State
 
 class DataQualityAction(BaseModel, Action):
     action_type: str 

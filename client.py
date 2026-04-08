@@ -1,5 +1,5 @@
-from openenv.core.http_env_client import HTTPEnvClient
-from openenv.core.types import StepResult
+from openenv_core.http_env_client import HTTPEnvClient
+from openenv_core.client_types import StepResult
 from models import DataQualityAction, DataQualityObservation, DataQualityState
 
 class DataQualityClient(HTTPEnvClient[DataQualityAction, DataQualityObservation]):
