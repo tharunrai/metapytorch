@@ -17,19 +17,19 @@ tasks:
   - id: task1_missing_values
     difficulty: easy
     description: Find all missing (null) values in an employee records dataset.
-    max_steps: 10
+    max_steps: 20
     reward_range: [0.0, 1.0]
 
   - id: task2_type_errors_duplicates
     difficulty: medium
     description: Identify type errors (wrong data types, invalid values) and duplicate rows.
-    max_steps: 15
+    max_steps: 25
     reward_range: [0.0, 1.0]
 
   - id: task3_outliers_inconsistencies
     difficulty: hard
     description: Detect statistical outliers and logical inconsistencies in a world cities dataset.
-    max_steps: 20
+    max_steps: 30
     reward_range: [0.0, 1.0]
 
 observation_space:
@@ -48,7 +48,7 @@ action_space:
   fields:
     action_type:
       type: string
-      enum: [start_task, flag_issue, submit]
+      enum: [flag_issue, fix_value, submit]
     task_id:
       type: string
     issue_type:
@@ -60,8 +60,12 @@ action_space:
       type: string
 
 endpoints:
-  ws: WS /ws
+  reset: POST /reset
+  step: POST /step
+  state: GET /state
+  tasks: GET /tasks
   health: GET /health
+  docs: GET /docs
 
 docker:
   port: 7860

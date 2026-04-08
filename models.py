@@ -7,6 +7,8 @@ class DataQualityAction(BaseModel):
     issue_type: Optional[str] = None
     row_index: Optional[int] = None
     column: Optional[str] = None
+    description: Optional[str] = None
+    fixed_value: Optional[Any] = None
 
 class DataQualityObservation(BaseModel):
     task_id: str

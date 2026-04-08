@@ -1,80 +1,163 @@
-import os
 import json
-import asyncio
+import os
 import textwrap
-from typing import Optional
-from openai import AsyncOpenAI
+from typing import Any, Optional
 
-from client import DataQualityClient
-from models import DataQualityAction
+import requests
+from openai import OpenAI
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
-BENCHMARK    = "data-quality-env"
-TEMPERATURE  = 0.2
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_KEY = (
+    os.getenv("HF_TOKEN")
+    or os.getenv("OPENAI_API_KEY")
+    or os.getenv("API_KEY", "")
+)
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860").rstrip("/")
+BENCHMARK = "data-quality-env"
+TEMPERATURE = 0.0
+MAX_TOKENS = 256
+MAX_STEPS = 30
 
-TASKS = ["task1_missing_values", "task2_type_errors_duplicates", "task3_outliers_inconsistencies"]
+TASKS = [
+    "task1_missing_values",
+    "task2_type_errors_duplicates",
+    "task3_outliers_inconsistencies",
+]
 
-def log_start(task: str, env: str, model: str):
+
+def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]):
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
-    done_val  = str(done).lower()
-    action_safe = action.replace("\n", " ")
-    print(f"[STEP] step={step} action={action_safe} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+    done_val = str(done).lower()
+    action_safe = action.replace("\n", " ").replace("\r", " ")
+    print(
+        f"[STEP] step={step} action={action_safe} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
 
-def log_end(success: bool, steps: int, score: float, rewards: list[float]):
+
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
 
-SYSTEM_PROMPT = textwrap.dedent("""
+
+SYSTEM_PROMPT = textwrap.dedent(
+    """
 You are a data quality expert agent.
-Respond with ONLY ONE JSON action object:
-{"action_type": "flag_issue", "issue_type": "missing", "row_index": 0, "column": "age"}
-When finished finding issues:
+Return exactly one JSON object with no extra text.
+Allowed format examples:
+{"action_type": "flag_issue", "issue_type": "missing", "row_index": 1, "column": "age"}
+{"action_type": "fix_value", "issue_type": "type_error", "row_index": 2, "column": "price", "fixed_value": 19.99}
 {"action_type": "submit"}
-""").strip()
+"""
+).strip()
 
-async def get_action(client: AsyncOpenAI, obs, step: int, last_reward: float) -> dict:
-    prompt = f"Step {step} | Last reward: {last_reward}\nTask: {obs.task_description}\nDataset: {json.dumps(obs.dataset)}\nIssues found: {obs.issues_found_so_far}\nHint: {obs.hint}"
+
+def _safe_parse_action(raw_text: str) -> dict[str, Any]:
+    cleaned = (raw_text or "").strip().replace("```json", "").replace("```", "").strip()
+    if not cleaned:
+        return {"action_type": "submit"}
+
+    candidates = [cleaned]
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidates.append(cleaned[start : end + 1])
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
+    return {"action_type": "submit"}
+
+
+def get_action(client: OpenAI, obs: dict[str, Any], step: int, last_reward: float) -> dict[str, Any]:
+    prompt = (
+        f"Step: {step}\n"
+        f"Last reward: {last_reward:.4f}\n"
+        f"Task: {obs.get('task_description', '')}\n"
+        f"Dataset: {json.dumps(obs.get('dataset', []))}\n"
+        f"Issues found: {obs.get('issues_found_so_far', [])}\n"
+        f"Hint: {obs.get('hint', '')}"
+    )
+
     try:
-        resp = await client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=TEMPERATURE,
-            max_tokens=256,
+            max_tokens=MAX_TOKENS,
+            stream=False,
         )
-        text = (resp.choices[0].message.content or "").strip().replace("```json", "").replace("```", "")
-        return json.loads(text)
+        text = (resp.choices[0].message.content or "").strip()
+        action = _safe_parse_action(text)
     except Exception:
-        return {"action_type": "submit"}
+        action = {"action_type": "submit"}
 
-async def run_task(llm_client: AsyncOpenAI, task_id: str):
+    if "action_type" not in action:
+        action["action_type"] = "submit"
+    return action
+
+
+def env_reset(task_id: str) -> dict[str, Any]:
+    response = requests.post(
+        f"{ENV_BASE_URL}/reset",
+        json={"task_id": task_id},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def env_step(task_id: str, action: dict[str, Any]) -> dict[str, Any]:
+    payload_action = dict(action)
+    payload_action["task_id"] = task_id
+    response = requests.post(
+        f"{ENV_BASE_URL}/step",
+        json={"task_id": task_id, "action": payload_action},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def run_task(llm_client: OpenAI, task_id: str) -> None:
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
-    rewards = []
-    steps_taken, score, success = 0, 0.0, False
-    env = DataQualityClient(base_url=ENV_BASE_URL)
+    rewards: list[float] = []
+    steps_taken = 0
+    score = 0.0
 
     try:
-        env.reset()
-        result = env.step(DataQualityAction(action_type="start_task", task_id=task_id))
-        obs, done, last_reward = result.observation, result.done, 0.0
-        max_steps = 30 # Fallback safety limit
+        reset_result = env_reset(task_id)
+        obs = reset_result.get("observation", {})
+        done = bool(reset_result.get("done", False))
+        last_reward = 0.0
 
-        for step in range(1, max_steps + 1):
+        for step in range(1, MAX_STEPS + 1):
             if done:
                 break
-            action_dict = await get_action(llm_client, obs, step, last_reward)
-            action_str = json.dumps(action_dict)
 
-            result = env.step(DataQualityAction(**action_dict))
-            obs, reward, done = result.observation, result.reward, result.done
+            action_dict = get_action(llm_client, obs, step, last_reward)
+            action_str = json.dumps(action_dict, separators=(",", ":"))
+
+            step_result = env_step(task_id, action_dict)
+            obs = step_result.get("observation", obs)
+            reward = float(step_result.get("reward", 0.0) or 0.0)
+            done = bool(step_result.get("done", False))
 
             rewards.append(reward)
             steps_taken = step
@@ -85,21 +168,19 @@ async def run_task(llm_client: AsyncOpenAI, task_id: str):
             if done:
                 score = reward
                 break
+    except Exception:
+        pass
 
-        success = score >= 0.5
+    score = min(max(float(score), 0.0), 1.0)
+    success = score >= 0.5
+    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
-    except Exception as e:
-        print(f"[DEBUG] Error: {e}", flush=True)
 
-    finally:
-        env.close()
-        score = min(max(float(score), 0.0), 1.0)
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-
-async def main():
-    llm_client = AsyncOpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+def main() -> None:
+    llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     for task_id in TASKS:
-        await run_task(llm_client, task_id)
+        run_task(llm_client, task_id)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

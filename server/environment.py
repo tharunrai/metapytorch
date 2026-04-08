@@ -24,6 +24,7 @@ class Observation(BaseModel):
 
 class Action(BaseModel):
     action_type: str  # "flag_issue", "fix_value", "submit"
+    task_id: Optional[str] = None
     issue_type: Optional[str] = None   # "missing", "duplicate", "type_error", "outlier", "inconsistency"
     row_index: Optional[int] = None
     column: Optional[str] = None
@@ -320,17 +321,19 @@ def favicon():
     return Response(status_code=204)
 
 @app.post("/reset")
-def reset(body: dict = {}):
-    task_id = body.get("task_id", "task1_missing_values")
+def reset(body: Optional[dict] = None):
+    payload = body or {}
+    task_id = payload.get("task_id", "task1_missing_values")
     env = get_env(task_id)
     result = env.reset()
     return result.model_dump()
 
 @app.post("/step")
 def step(body: dict):
-    task_id = body.get("task_id", "task1_missing_values")
+    action_payload = body.get("action", body)
+    task_id = body.get("task_id") or action_payload.get("task_id") or "task1_missing_values"
     env = get_env(task_id)
-    action = Action(**body.get("action", {}))
+    action = Action(**action_payload)
     result = env.step(action)
     return result.model_dump()
 
