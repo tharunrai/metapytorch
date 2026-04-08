@@ -6,8 +6,8 @@ An AI agent inspects a dataset and identifies/fixes data quality issues.
 import json
 import random
 from typing import Any, Optional
-from pydantic import BaseModel
-from fastapi import FastAPI, Response
+from pydantic import BaseModel, ValidationError
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse
 import uvicorn
 
@@ -308,6 +308,11 @@ app = FastAPI(title="DataQualityEnv", description="OpenEnv data quality checking
 _envs: dict[str, DataQualityEnv] = {}
 
 def get_env(task_id: str) -> DataQualityEnv:
+    if task_id not in TASKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown task_id '{task_id}'. Choose from {list(TASKS.keys())}.",
+        )
     if task_id not in _envs:
         _envs[task_id] = DataQualityEnv(task_id)
     return _envs[task_id]
@@ -324,16 +329,30 @@ def favicon():
 def reset(body: Optional[dict] = None):
     payload = body or {}
     task_id = payload.get("task_id", "task1_missing_values")
+    if not isinstance(task_id, str):
+        raise HTTPException(status_code=422, detail="`task_id` must be a string.")
     env = get_env(task_id)
     result = env.reset()
     return result.model_dump()
 
 @app.post("/step")
-def step(body: dict):
-    action_payload = body.get("action", body)
-    task_id = body.get("task_id") or action_payload.get("task_id") or "task1_missing_values"
+def step(body: Optional[dict] = None):
+    payload = body or {}
+    action_payload = payload.get("action", payload)
+
+    if not isinstance(action_payload, dict):
+        raise HTTPException(status_code=422, detail="`action` must be an object.")
+
+    task_id = payload.get("task_id") or action_payload.get("task_id") or "task1_missing_values"
+    if not isinstance(task_id, str):
+        raise HTTPException(status_code=422, detail="`task_id` must be a string.")
+
     env = get_env(task_id)
-    action = Action(**action_payload)
+    try:
+        action = Action(**action_payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
     result = env.step(action)
     return result.model_dump()
 
