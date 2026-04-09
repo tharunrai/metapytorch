@@ -18,12 +18,17 @@ BENCHMARK = "data-quality-env"
 TEMPERATURE = 0.0
 MAX_TOKENS = 256
 MAX_STEPS = 30
+SCORE_EPSILON = 1e-4
 
 TASKS = [
     "task1_missing_values",
     "task2_type_errors_duplicates",
     "task3_outliers_inconsistencies",
 ]
+
+
+def clamp_open_score(value: float, epsilon: float = SCORE_EPSILON) -> float:
+    return min(max(float(value), epsilon), 1.0 - epsilon)
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -158,6 +163,7 @@ def run_task(llm_client: OpenAI, task_id: str) -> None:
             obs = step_result.get("observation", obs)
             reward = float(step_result.get("reward", 0.0) or 0.0)
             done = bool(step_result.get("done", False))
+            info = step_result.get("info") or {}
 
             rewards.append(reward)
             steps_taken = step
@@ -166,12 +172,12 @@ def run_task(llm_client: OpenAI, task_id: str) -> None:
             log_step(step=step, action=action_str, reward=reward, done=done, error=None)
 
             if done:
-                score = reward
+                score = float(info.get("final_score", reward) or reward)
                 break
     except Exception:
         pass
 
-    score = min(max(float(score), 0.0), 1.0)
+    score = clamp_open_score(score)
     success = score >= 0.5
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 

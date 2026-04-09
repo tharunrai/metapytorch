@@ -187,5 +187,5 @@ Example baseline run (Qwen/Qwen2.5-72B-Instruct):
 - Space responds to `POST /reset` with HTTP 200.
 - Docker image builds from repo root.
 - `inference.py` runs and logs START/STEP/END format.
-- Three tasks available with deterministic scoring in `[0.0, 1.0]`.
+- Three tasks available with deterministic scoring strictly in `(0.0, 1.0)`.
 - `openenv.yaml` matches implementation.

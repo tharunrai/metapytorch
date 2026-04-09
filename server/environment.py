@@ -11,6 +11,12 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse
 import uvicorn
 
+SCORE_EPSILON = 1e-4
+
+
+def clamp_open_unit_interval(value: float, epsilon: float = SCORE_EPSILON) -> float:
+    return min(max(float(value), epsilon), 1.0 - epsilon)
+
 # ─── Pydantic Models ────────────────────────────────────────────────────────
 
 class Observation(BaseModel):
@@ -226,7 +232,7 @@ class DataQualityEnv:
             final_score = self._compute_final_score()
             return StepResult(
                 observation=self._make_observation(hint="Max steps reached."),
-                reward=0.0,
+                reward=final_score,
                 done=True,
                 info={"reason": "max_steps_exceeded", "final_score": final_score},
             )
@@ -298,7 +304,7 @@ class DataQualityEnv:
         # Step efficiency bonus: fewer steps = slightly higher score
         efficiency = max(0.0, 1.0 - self.step_number / (self.max_steps * 2))
         score = 0.85 * f1 + 0.15 * efficiency
-        return round(min(max(score, 0.0), 1.0), 4)
+        return round(clamp_open_unit_interval(score), 4)
 
 
 # ─── FastAPI App ─────────────────────────────────────────────────────────────
