@@ -89,7 +89,7 @@ The reward is shaped across the trajectory:
 - bonus for valid fix actions,
 - final score based on precision, recall, and efficiency.
 
-Scores are clamped to `[0.0, 1.0]`.
+Scores are clamped strictly inside `(0.0, 1.0)`.
 
 ## Project Structure
 

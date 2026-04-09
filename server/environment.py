@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import RedirectResponse
 import uvicorn
 
-SCORE_EPSILON = 1e-4
+SCORE_EPSILON = 1e-3
 
 
 def clamp_open_unit_interval(value: float, epsilon: float = SCORE_EPSILON) -> float:
@@ -208,17 +208,18 @@ class DataQualityEnv:
             step_number=self.step_number,
             issues_found=list(self.issues_found),
             total_issues_in_task=len(self.ground_truth_issues),
-            score_so_far=round(self.cumulative_reward, 4),
+            score_so_far=round(clamp_open_unit_interval(self.cumulative_reward), 4),
             done=self.done,
         )
 
     def step(self, action: Action) -> StepResult:
         if self.done:
+            final_score = self._compute_final_score()
             return StepResult(
                 observation=self._make_observation(hint="Episode already done. Call reset()."),
-                reward=0.0,
+                reward=final_score,
                 done=True,
-                info={"error": "already_done"},
+                info={"error": "already_done", "final_score": final_score},
             )
 
         self.step_number += 1
@@ -282,7 +283,7 @@ class DataQualityEnv:
             hint = f"Unknown action_type '{action.action_type}'. Use: flag_issue, fix_value, submit."
             info = {"error": "unknown_action"}
 
-        self.cumulative_reward = min(self.cumulative_reward + reward, 1.0)
+        self.cumulative_reward = clamp_open_unit_interval(self.cumulative_reward + reward)
         return StepResult(
             observation=self._make_observation(hint=hint),
             reward=round(reward, 4),
